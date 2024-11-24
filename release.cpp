@@ -1,91 +1,168 @@
 #include <iostream>
 #include <vector>
-#include <random>
 #include <algorithm>
+#include <random>
+#include <chrono>
 #include <fstream>
-#include <cmath>
-
-double monteCarlo(const std::vector<std::pair<double, double>>& circles, const std::vector<double>& r, int n) {
-  int m = 0;
-  double min_x = circles[0].first - r[0];
-  double max_x = circles[0].first + r[0];
-  double min_y = circles[0].second - r[0];
-  double max_y = circles[0].second + r[0];
-
-  for (size_t i = 1; i < circles.size(); ++i) {
-    min_x = std::min(min_x, circles[i].first - r[i]);
-    max_x = std::max(max_x, circles[i].first + r[i]);
-    min_y = std::min(min_y, circles[i].second - r[i]);
-    max_y = std::max(max_y, circles[i].second + r[i]);
+class ArrayGenerator {
+ public:
+  [[nodiscard]] int getMaxSize() const {
+    return max_size;
   }
 
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_real_distribution<> dis_x(min_x, max_x);
-  std::uniform_real_distribution<> dis_y(min_y, max_y);
+  explicit ArrayGenerator(int max_size, int min, int max)
+      : max_size(max_size), min(min), max(max), seed(std::random_device{}()) {
+    madeRandomArray();
+    madeReversedArray();
+    madeAlmostSortedArray();
+  }
 
-  for (int i = 0; i < n; ++i) {
-    double x = dis_x(gen);
-    double y = dis_y(gen);
-    bool allCircles = true;
+  std::vector<int> RandomArray(int size) const {
+    return std::vector<int>(randomArray.begin(), randomArray.begin() + size);
+  }
 
-    for (size_t j = 0; j < circles.size(); ++j) {
-      double dx = x - circles[j].first;
-      double dy = y - circles[j].second;
-      if (dx * dx + dy * dy > r[j] * r[j]) {
-        allCircles = false;
-        break;
+  std::vector<int> ReversedArray(int size) const {
+    return std::vector<int>(reversedArray.begin(), reversedArray.begin() + size);
+  }
+
+  std::vector<int> AlmostSortedArray(int size) const {
+    return std::vector<int>(notsortedArray.begin(), notsortedArray.begin() + size);
+  }
+
+ private:
+  int max_size;
+  int min, max;
+  std::vector<int> randomArray;
+  std::vector<int> reversedArray;
+  std::vector<int> notsortedArray;
+  std::mt19937 seed;
+
+  void madeRandomArray() {
+    std::uniform_int_distribution<int> dist(min, max);
+    randomArray.resize(max_size);
+    for (int& elem : randomArray) {
+      elem = dist(seed);
+    }
+  }
+
+  void madeReversedArray() {
+    reversedArray = randomArray;
+    std::sort(reversedArray.rbegin(), reversedArray.rend());
+  }
+
+  void madeAlmostSortedArray() {
+    notsortedArray = randomArray;
+    std::sort(notsortedArray.begin(), notsortedArray.end());
+    std::uniform_int_distribution<int> dist(0, max_size - 1);
+    for (int i = 0; i < max_size / 100; ++i) {
+      int first = dist(seed);
+      int second = dist(seed);
+      std::swap(notsortedArray[first], notsortedArray[second]);
+    }
+  }
+};
+class SortTester {
+ public:
+  SortTester() = default;
+
+  void testSorts(const ArrayGenerator& generator, const std::string& result) {
+    std::ofstream out(result);
+
+    out << "n\tRandomMerge\tReversedMerge\tAlmostSortedMerge\t"
+           "RandomHybrid\tReversedHybrid\tAlmostSortedHybrid\n";
+
+    int max_size = generator.getMaxSize();
+    for (int size = 500; size <= max_size; size += 100) {
+      std::vector<int> randomArray = generator.RandomArray(size);
+      std::vector<int> reversedArray = generator.ReversedArray(size);
+      std::vector<int> almostSortedArray = generator.AlmostSortedArray(size);
+
+      out << size << "\t";
+      out << measureTime(randomArray, mergeSort) << "\t";
+      out << measureTime(reversedArray, mergeSort) << "\t";
+      out << measureTime(almostSortedArray, mergeSort) << "\t";
+      out << measureTime(randomArray, hybridMergeSort) << "\t";
+      out << measureTime(reversedArray, hybridMergeSort) << "\t";
+      out << measureTime(almostSortedArray, hybridMergeSort) << "\n";
+    }
+
+    out.close();
+  }
+
+  inline static int threshold;
+
+ private:
+  static void insertionSort(std::vector<int>& array, int left, int right) {
+    for (int i = left + 1; i <= right; ++i) {
+      int key = array[i];
+      int j = i - 1;
+      while (j >= left && array[j] > key) {
+        array[j + 1] = array[j];
+        --j;
+      }
+      array[j + 1] = key;
+    }
+  }
+
+  static void merge(std::vector<int>& array, int left, int mid, int right) {
+    std::vector<int> arr(right - left + 1);
+    int i = left, j = mid + 1, k = 0;
+    while (i <= mid && j <= right) {
+      if (array[i] <= array[j]) {
+        arr[k++] = array[i++];
+      } else {
+        arr[k++] = array[j++];
       }
     }
-    if (allCircles) {
-      ++m;
+    while (i <= mid) {
+      arr[k++] = array[i++];
+    }
+    while (j <= right) {
+      arr[k++] = array[j++];
+    }
+    for (i = left, k = 0; i <= right; ++i, ++k) {
+      array[i] = arr[k];
+    }
+  }
+  static void mergeSort(std::vector<int>& arr, int left, int right) {
+    if (left >= right) return;
+    int mid = left + (right - left) / 2;
+    mergeSort(arr, left, mid);
+    mergeSort(arr, mid + 1, right);
+    merge(arr, left, mid, right);
+  }
+
+  static void hybridMergeSort(std::vector<int>& array, int left, int right) {
+    if (right - left + 1 <= threshold) {
+      insertionSort(array, left, right);
+    } else if (left < right) {
+      int mid = left + (right - left) / 2;
+      hybridMergeSort(array, left, mid);
+      hybridMergeSort(array, mid + 1, right);
+      merge(array, left, mid, right);
     }
   }
 
-  double Srec = (max_x - min_x) * (max_y - min_y);
-  return static_cast<double>(m) / n * Srec;
-}
-
+  template <typename sortByFunction>
+  long long measureTime(std::vector<int> arr, sortByFunction func) {
+    auto start = std::chrono::high_resolution_clock::now();
+    func(arr, 0, arr.size() - 1);
+    auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    return std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+  }
+};
 int main() {
-  std::vector<std::pair<double, double>> circles(3);
-  std::vector<double> r(3);
-  circles[0].first=1.0;
-  circles[0].second=1.0;
-  r[0]=1.0;
-  circles[1].first=1.5;
-  circles[1].second=2;
-  r[1]= sqrt(5)/2;
-  circles[2].first=2;
-  circles[2].second=1.5;
-  r[2]= sqrt(5)/2;
+  std::ios::sync_with_stdio(false);
+  std::cin.tie(nullptr);
+  std::cout.tie(nullptr);
 
+  int maxSize = 7000;
+  const int threshold = 15;
+  SortTester::threshold = threshold;
 
+  ArrayGenerator generator(maxSize, 0, 4000);
+  SortTester tester;
+  tester.testSorts(generator, "result.txt");
 
-  std::ofstream results("results.csv");
-
-  std::vector<int> pointsCount;
-  std::vector<double> areas;
-  std::vector<double> differences;
-  double rightAnswer =0.25 * M_PI + 1.25 * asin(0.8) - 1;
-  for (int n = 100; n <= 100000; n += 500) {
-    double monteCarloRes = monteCarlo(circles, r, n);
-    pointsCount.push_back(n);
-    areas.push_back(monteCarloRes);
-    differences.push_back(std::abs(monteCarloRes - rightAnswer));
-  }
-
-  for (int i = 0; i < pointsCount.size(); ++i) {
-    results << pointsCount[i] << ',';
-  }
-  results << '\n';
-  for (int i = 0; i < areas.size(); ++i) {
-    results << areas[i] << ',';
-  }
-  results << '\n';
-  for (int i = 0; i < differences.size(); ++i) {
-    results << differences[i] << ',';
-  }
-
-  results.close();
   return 0;
 }
